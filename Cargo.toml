@@ -1,0 +1,12 @@
+[workspace]
+members = ["potts-core", "potts-graph"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+potts-core = { path = "potts-core" }
+rayon = "1.10"
