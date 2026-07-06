@@ -13,7 +13,11 @@ pub struct RunConfig {
 
 pub struct TempStats {
     pub temp: f64,
+    /// χ = (1/NT) * <Σ_k n_k²> — includes the largest cluster.
     pub susceptibility: f64,
+    /// χ_c = (1/NT) * <Σ_{k ≠ max} n_k²> — excludes the largest cluster.
+    /// Peaks at the superparamagnetic transition and returns to zero at low T.
+    pub susceptibility_connected: f64,
     /// Fraction of measurement sweeps in which each edge's endpoints were
     /// in the same SW cluster. Indexed parallel to `graph.edges`.
     pub edge_correlations: Vec<f64>,
@@ -61,6 +65,7 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
 
             let mut edge_co_count = vec![0u64; n_edges];
             let mut sum_sq_sizes = 0.0_f64;
+            let mut sum_sq_sizes_connected = 0.0_f64;
 
             for s in 0..config.n_sweeps {
                 let sweep_seed = base_sweep + config.n_warmup as u64 + s as u64;
@@ -81,6 +86,24 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
                 sum_sq_sizes +=
                     cluster_sizes.iter().map(|&s| (s as f64) * (s as f64)).sum::<f64>();
 
+                // Exclude exactly one entry — the largest cluster by index, not by value.
+                // Excluding by value would silently drop multiple clusters if two share the
+                // maximum size, underestimating χ_c. At low T the system is fully ordered
+                // (one giant cluster), so after exclusion the remaining sum → 0, giving the
+                // peak-then-decay shape that locates the superparamagnetic transition.
+                let max_idx = cluster_sizes
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|&(_, &s)| s)
+                    .map(|(i, _)| i)
+                    .unwrap(); // safe: n >= 2 guaranteed by graph construction
+                sum_sq_sizes_connected += cluster_sizes
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| i != max_idx)
+                    .map(|(_, &s)| (s as f64) * (s as f64))
+                    .sum::<f64>();
+
                 assign_spins(&mut uf, &mut spins, config.n_states, config.base_seed, sweep_seed);
             }
 
@@ -90,15 +113,17 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
                 .map(|&c| c as f64 / n_sweeps_f)
                 .collect();
 
-            // NOTE: susceptibility estimator χ = (1/NT) * <Σ_k n_k²>.
+            // NOTE: susceptibility estimators follow standard Potts MC practice.
             // The paper (Blatt et al. 1997) identifies the superparamagnetic phase via a peak
-            // in χ(T) but does not prescribe this estimator — this follows standard Potts MC
-            // practice. The peak location is correct; the absolute scale is not calibrated.
-            let susceptibility = sum_sq_sizes / (n_sweeps_f * n as f64 * temp);
+            // in χ(T) but does not prescribe the estimator precisely.
+            let scale = n_sweeps_f * n as f64 * temp;
+            let susceptibility = sum_sq_sizes / scale;
+            let susceptibility_connected = sum_sq_sizes_connected / scale;
 
             TempStats {
                 temp,
                 susceptibility,
+                susceptibility_connected,
                 edge_correlations,
             }
         })
