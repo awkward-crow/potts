@@ -2,20 +2,14 @@ use crate::graph::Graph;
 use crate::rng::{edge_seed, splitmix64, to_f64};
 use crate::union_find::UnionFind;
 
-pub fn sweep(
+pub(crate) fn activate_bonds(
     graph: &Graph,
     bond_probs: &[f64],
-    spins: &mut [u32],
-    n_states: u32,
+    spins: &[u32],
     base_seed: u64,
     sweep_seed: u64,
-) {
-    debug_assert_eq!(bond_probs.len(), graph.edges.len());
-    debug_assert_eq!(spins.len(), graph.n_nodes);
-
-    let n = graph.n_nodes;
-    let mut uf = UnionFind::new(n);
-
+) -> UnionFind {
+    let mut uf = UnionFind::new(graph.n_nodes);
     for (e, &(i, j, _)) in graph.edges.iter().enumerate() {
         if spins[i] == spins[j] {
             let u = to_f64(splitmix64(edge_seed(base_seed, sweep_seed << 1, e as u64)));
@@ -24,8 +18,17 @@ pub fn sweep(
             }
         }
     }
+    uf
+}
 
-    // spin assignment seeds use the odd lane to avoid colliding with bond seeds
+pub(crate) fn assign_spins(
+    uf: &mut UnionFind,
+    spins: &mut [u32],
+    n_states: u32,
+    base_seed: u64,
+    sweep_seed: u64,
+) {
+    let n = spins.len();
     let spin_sweep = (sweep_seed << 1) | 1;
     let mut component_spin = vec![0u32; n];
     for i in 0..n {
@@ -37,6 +40,20 @@ pub fn sweep(
     for i in 0..n {
         spins[i] = component_spin[uf.find(i)];
     }
+}
+
+pub fn sweep(
+    graph: &Graph,
+    bond_probs: &[f64],
+    spins: &mut [u32],
+    n_states: u32,
+    base_seed: u64,
+    sweep_seed: u64,
+) {
+    debug_assert_eq!(bond_probs.len(), graph.edges.len());
+    debug_assert_eq!(spins.len(), graph.n_nodes);
+    let mut uf = activate_bonds(graph, bond_probs, spins, base_seed, sweep_seed);
+    assign_spins(&mut uf, spins, n_states, base_seed, sweep_seed);
 }
 
 #[cfg(test)]
