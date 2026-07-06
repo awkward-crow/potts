@@ -1,1 +1,2 @@
-// potts-graph: builds weighted graphs from data via the Clusterable trait
+pub mod graph;
+pub use graph::{knn_graph, knn_mst_graph};
