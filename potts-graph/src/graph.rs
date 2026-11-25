@@ -52,7 +52,7 @@ fn euclidean(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| (x - y).powi(2)).sum::<f64>().sqrt()
 }
 
-fn interaction_strength(n: usize, pairs: Vec<(usize, usize, f64)>) -> Vec<(usize, usize, f64)> {
+pub fn interaction_strength(n: usize, pairs: Vec<(usize, usize, f64)>) -> Vec<(usize, usize, f64)> {
     let n_edges = pairs.len();
     assert!(n_edges > 0, "graph has no edges");
     let a = pairs.iter().map(|&(_, _, d)| d).sum::<f64>() / n_edges as f64;
