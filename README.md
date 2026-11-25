@@ -7,7 +7,7 @@ Rust implementation of Superparamagnetic Clustering (SPC), based on:
 ## crates
 
 - `potts-core` — Potts model dynamics: Swendsen-Wang Monte Carlo, temperature sweep, susceptibility tracking, and cluster extraction. Input: a weighted graph.
-- `potts-graph` — builds that graph from data via a dissimilarity closure; supports k-NN and k-NN + minimum spanning tree topologies with Gaussian coupling weights.
+- `potts-graph` — builds that graph from Euclidean point data: mutual k-nearest neighbours with the Gaussian coupling of Blatt et al. 1997, eq. (9).
 
 ## example
 

@@ -1,10 +1,10 @@
 use potts_core::temperature::{extract_clusters, run, RunConfig};
-use potts_graph::knn_mst_graph;
+use potts_graph::mutual_knn_graph;
 use std::collections::HashSet;
 
 fn main() {
     let pts = buckyball_vertices();
-    let graph = knn_mst_graph(&pts, 5);
+    let graph = mutual_knn_graph(&pts, 5);
 
     eprintln!("C60 buckyball: {} vertices, {} edges", pts.len(), graph.edges.len());
 
@@ -34,7 +34,7 @@ fn main() {
 
     println!("temp\tsusceptibility\tsusceptibility_connected\tn_clusters");
     for s in &stats {
-        let labels = extract_clusters(&graph, &s.edge_correlations, 0.5);
+        let labels = extract_clusters(&graph, &s.edge_correlations, config.n_states);
         let n_clusters = labels.iter().cloned().collect::<HashSet<_>>().len();
         println!(
             "{:.6}\t{:.6}\t{:.6}\t{}",

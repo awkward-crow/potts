@@ -130,20 +130,47 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
         .collect()
 }
 
-/// Threshold edge correlations and return contiguous cluster labels (one per node).
-/// Nodes connected only by below-threshold edges form singleton clusters.
-pub fn extract_clusters(
-    graph: &Graph,
-    edge_correlations: &[f64],
-    threshold: f64,
-) -> Vec<usize> {
+/// Data clusters from the edge correlations at one temperature
+/// (Blatt, Wiseman & Domany 1997, §4.3.2).
+///
+/// 1. Core: link i and j if their spin–spin correlation G_ij > 0.5, where
+///    G_ij = ((q − 1) C_ij + 1) / q (eq. 11) and C_ij is `edge_correlations`.
+/// 2. Periphery: link every point to its neighbour of maximal correlation.
+/// 3. Clusters are the connected components of the links from 1 and 2.
+///
+/// Labels are numbered 0, 1, 2, … in order of each cluster's first point.
+/// A point with no edges stays a singleton.
+pub fn extract_clusters(graph: &Graph, edge_correlations: &[f64], n_states: u32) -> Vec<usize> {
     let n = graph.n_nodes;
+    let q = n_states as f64;
     let mut uf = UnionFind::new(n);
+
+    // step 1: core links
     for (e, &(i, j, _)) in graph.edges.iter().enumerate() {
-        if edge_correlations[e] >= threshold {
+        let g = ((q - 1.0) * edge_correlations[e] + 1.0) / q;
+        if g > 0.5 {
             uf.union(i, j);
         }
     }
+
+    // step 2: link each point to its neighbour of maximal correlation;
+    // ties go to the lowest edge index
+    let mut best: Vec<Option<(f64, usize)>> = vec![None; n];
+    for (e, &(i, j, _)) in graph.edges.iter().enumerate() {
+        let c = edge_correlations[e];
+        for (p, other) in [(i, j), (j, i)] {
+            if best[p].map_or(true, |(bc, _)| c > bc) {
+                best[p] = Some((c, other));
+            }
+        }
+    }
+    for (p, b) in best.iter().enumerate() {
+        if let Some((_, other)) = *b {
+            uf.union(p, other);
+        }
+    }
+
+    // step 3: label connected components
     let mut root_to_label = vec![usize::MAX; n];
     let mut next_label = 0usize;
     let mut labels = vec![0usize; n];
@@ -207,20 +234,39 @@ mod tests {
     fn extract_all_above_threshold() {
         let graph = triangle_graph();
         let corr = vec![1.0, 1.0, 1.0];
-        let labels = extract_clusters(&graph, &corr, 0.5);
+        let labels = extract_clusters(&graph, &corr, 20);
         assert_eq!(labels[0], labels[1]);
         assert_eq!(labels[0], labels[2]);
     }
 
-    /// extract_clusters: all edges below threshold → three singletons.
+    /// extract_clusters: no core links, but step 2 links every point to its
+    /// best neighbour (ties → lowest edge index) → one cluster.
     #[test]
-    fn extract_all_below_threshold() {
+    fn extract_all_zero_still_linked_by_step2() {
         let graph = triangle_graph();
         let corr = vec![0.0, 0.0, 0.0];
-        let labels = extract_clusters(&graph, &corr, 0.5);
-        assert_ne!(labels[0], labels[1]);
-        assert_ne!(labels[0], labels[2]);
-        assert_ne!(labels[1], labels[2]);
+        let labels = extract_clusters(&graph, &corr, 20);
+        assert_eq!(labels, vec![0, 0, 0]);
+    }
+
+    /// extract_clusters: point 4 is below the core threshold to both cores
+    /// (C=0.3 → G=0.335 with q=20) but joins core A, its best neighbour.
+    /// The cores stay separate.
+    #[test]
+    fn extract_periphery_joins_best_core() {
+        let edges = vec![(0, 1, 1.0), (2, 3, 1.0), (1, 4, 1.0), (2, 4, 1.0)];
+        let graph = Graph::new(5, edges);
+        let corr = vec![0.9, 0.9, 0.3, 0.1];
+        let labels = extract_clusters(&graph, &corr, 20);
+        assert_eq!(labels, vec![0, 0, 1, 1, 0]);
+    }
+
+    /// extract_clusters: a node with no edges stays a singleton.
+    #[test]
+    fn extract_isolated_node_singleton() {
+        let graph = Graph::new(3, vec![(0, 1, 1.0)]);
+        let labels = extract_clusters(&graph, &[0.0], 20);
+        assert_eq!(labels, vec![0, 0, 1]);
     }
 
     /// extract_clusters: two disconnected groups with high internal correlation.
@@ -233,7 +279,7 @@ mod tests {
         ];
         let graph = Graph::new(5, edges);
         let corr = vec![0.9, 0.9, 0.9, 0.9];
-        let labels = extract_clusters(&graph, &corr, 0.5);
+        let labels = extract_clusters(&graph, &corr, 20);
         assert_eq!(labels[0], labels[1]);
         assert_eq!(labels[0], labels[2]);
         assert_eq!(labels[3], labels[4]);
