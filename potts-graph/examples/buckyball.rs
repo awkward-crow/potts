@@ -8,12 +8,12 @@ fn main() {
 
     eprintln!("C60 buckyball: {} vertices, {} edges", pts.len(), graph.edges.len());
 
-    // log-spaced temperatures from high to low
+    // log-spaced temperatures from low to high
     let n_temps = 30;
     let t_min = 0.2f64;
     let t_max = 1.0_f64;
     let temperatures: Vec<f64> = (0..n_temps)
-        .map(|i| t_max * (t_min / t_max).powf(i as f64 / (n_temps - 1) as f64))
+        .map(|i| t_min * (t_max / t_min).powf(i as f64 / (n_temps - 1) as f64))
         .collect();
 
     let config = RunConfig {

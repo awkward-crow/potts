@@ -1,5 +1,4 @@
 use crate::graph::Graph;
-use crate::rng::{edge_seed, splitmix64};
 use crate::sweep::{activate_bonds, assign_spins};
 use crate::union_find::UnionFind;
 
@@ -19,11 +18,19 @@ pub struct TempStats {
     pub edge_correlations: Vec<f64>,
 }
 
+/// Heats the system through `config.temperatures`, which must increase. Every
+/// spin starts in the same state (§3) and the spins carry over from one
+/// temperature to the next.
 pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
     debug_assert!(config.n_sweeps > 0, "n_sweeps must be > 0");
+    assert!(
+        config.temperatures.windows(2).all(|w| w[0] < w[1]),
+        "temperatures must increase"
+    );
 
     let n = graph.n_nodes;
     let n_edges = graph.edges.len();
+    let mut spins = vec![0u32; n];
 
     config
         .temperatures
@@ -34,15 +41,6 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
                 .edges
                 .iter()
                 .map(|&(_, _, w)| 1.0 - (-w / temp).exp())
-                .collect();
-
-            // fresh random spins for each temperature
-            let init_seed =
-                splitmix64(config.base_seed ^ (t_idx as u64).wrapping_mul(0x9e3779b97f4a7c15));
-            let mut spins: Vec<u32> = (0..n)
-                .map(|i| {
-                    (splitmix64(edge_seed(init_seed, 0, i as u64)) % config.n_states as u64) as u32
-                })
                 .collect();
 
             let base_sweep = (t_idx * config.n_sweeps) as u64;
@@ -259,5 +257,12 @@ mod tests {
     fn magnetization_ordered_and_uniform() {
         assert_eq!(magnetization(&[3, 3, 3, 3], 4), 1.0);
         assert_eq!(magnetization(&[0, 1, 2, 3], 4), 0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "temperatures must increase")]
+    fn temperatures_must_increase() {
+        let config = RunConfig { temperatures: vec![0.2, 0.1], n_sweeps: 1, n_states: 2, base_seed: 0 };
+        run(&triangle_graph(), &config);
     }
 }
