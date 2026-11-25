@@ -15,7 +15,7 @@ Rust implementation of Superparamagnetic Clustering (SPC), based on:
 cargo run --example buckyball
 ```
 
-Runs a temperature sweep on the 60 vertices of a C60 buckyball (unit sphere). Output is tab-separated (temp, susceptibility, n_clusters) and can be redirected to a file for plotting. The transition from 60 singleton clusters to a single cluster is sharp and occurs around T ≈ 0.41.
+Runs a temperature sweep on the 60 vertices of a C60 buckyball (unit sphere). Output is tab-separated (temp, susceptibility, n_clusters) and can be redirected to a file for plotting. The vertices form a single cluster at low temperature; the susceptibility peaks sharply at T ≈ 0.09, close to the estimate from eq. 10 of Blatt et al. (1997), and above it the cluster breaks up.
 
 ## license
 
