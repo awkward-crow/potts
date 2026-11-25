@@ -42,20 +42,6 @@ pub(crate) fn assign_spins(
     }
 }
 
-pub fn sweep(
-    graph: &Graph,
-    bond_probs: &[f64],
-    spins: &mut [u32],
-    n_states: u32,
-    base_seed: u64,
-    sweep_seed: u64,
-) {
-    debug_assert_eq!(bond_probs.len(), graph.edges.len());
-    debug_assert_eq!(spins.len(), graph.n_nodes);
-    let mut uf = activate_bonds(graph, bond_probs, spins, base_seed, sweep_seed);
-    assign_spins(&mut uf, spins, n_states, base_seed, sweep_seed);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +52,18 @@ mod tests {
             .iter()
             .map(|&(_, _, w)| 1.0 - (-w / temp).exp())
             .collect()
+    }
+
+    fn sweep(
+        graph: &Graph,
+        bond_probs: &[f64],
+        spins: &mut [u32],
+        n_states: u32,
+        base_seed: u64,
+        sweep_seed: u64,
+    ) {
+        let mut uf = activate_bonds(graph, bond_probs, spins, base_seed, sweep_seed);
+        assign_spins(&mut uf, spins, n_states, base_seed, sweep_seed);
     }
 
     /// Two disconnected triangles. At T→0 each triangle collapses to one spin.

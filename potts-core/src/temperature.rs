@@ -1,11 +1,10 @@
 use crate::graph::Graph;
 use crate::rng::{edge_seed, splitmix64};
-use crate::sweep::{activate_bonds, assign_spins, sweep};
+use crate::sweep::{activate_bonds, assign_spins};
 use crate::union_find::UnionFind;
 
 pub struct RunConfig {
     pub temperatures: Vec<f64>,
-    pub n_warmup: usize,
     pub n_sweeps: usize,
     pub n_states: u32,
     pub base_seed: u64,
@@ -13,11 +12,8 @@ pub struct RunConfig {
 
 pub struct TempStats {
     pub temp: f64,
-    /// χ = (1/NT) * <Σ_k n_k²> — includes the largest cluster.
+    /// χ = (N/T)(⟨m²⟩ − ⟨m⟩²), eq. 6 of Blatt, Wiseman & Domany (1997), with m from eq. 4.
     pub susceptibility: f64,
-    /// χ_c = (1/NT) * <Σ_{k ≠ max} n_k²> — excludes the largest cluster.
-    /// Peaks at the superparamagnetic transition and returns to zero at low T.
-    pub susceptibility_connected: f64,
     /// Fraction of measurement sweeps in which each edge's endpoints were
     /// in the same SW cluster. Indexed parallel to `graph.edges`.
     pub edge_correlations: Vec<f64>,
@@ -28,7 +24,6 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
 
     let n = graph.n_nodes;
     let n_edges = graph.edges.len();
-    let sweeps_per_temp = (config.n_warmup + config.n_sweeps) as u64;
 
     config
         .temperatures
@@ -50,25 +45,14 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
                 })
                 .collect();
 
-            let base_sweep = (t_idx as u64) * sweeps_per_temp;
-
-            for s in 0..config.n_warmup {
-                sweep(
-                    graph,
-                    &bond_probs,
-                    &mut spins,
-                    config.n_states,
-                    config.base_seed,
-                    base_sweep + s as u64,
-                );
-            }
+            let base_sweep = (t_idx * config.n_sweeps) as u64;
 
             let mut edge_co_count = vec![0u64; n_edges];
-            let mut sum_sq_sizes = 0.0_f64;
-            let mut sum_sq_sizes_connected = 0.0_f64;
+            let mut sum_m = 0.0_f64;
+            let mut sum_m_sq = 0.0_f64;
 
             for s in 0..config.n_sweeps {
-                let sweep_seed = base_sweep + config.n_warmup as u64 + s as u64;
+                let sweep_seed = base_sweep + s as u64;
 
                 let mut uf =
                     activate_bonds(graph, &bond_probs, &spins, config.base_seed, sweep_seed);
@@ -79,32 +63,11 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
                     }
                 }
 
-                let mut cluster_sizes = vec![0u32; n];
-                for i in 0..n {
-                    cluster_sizes[uf.find(i)] += 1;
-                }
-                sum_sq_sizes +=
-                    cluster_sizes.iter().map(|&s| (s as f64) * (s as f64)).sum::<f64>();
-
-                // Exclude exactly one entry — the largest cluster by index, not by value.
-                // Excluding by value would silently drop multiple clusters if two share the
-                // maximum size, underestimating χ_c. At low T the system is fully ordered
-                // (one giant cluster), so after exclusion the remaining sum → 0, giving the
-                // peak-then-decay shape that locates the superparamagnetic transition.
-                let max_idx = cluster_sizes
-                    .iter()
-                    .enumerate()
-                    .max_by_key(|&(_, &s)| s)
-                    .map(|(i, _)| i)
-                    .unwrap(); // safe: n >= 2 guaranteed by graph construction
-                sum_sq_sizes_connected += cluster_sizes
-                    .iter()
-                    .enumerate()
-                    .filter(|&(i, _)| i != max_idx)
-                    .map(|(_, &s)| (s as f64) * (s as f64))
-                    .sum::<f64>();
-
                 assign_spins(&mut uf, &mut spins, config.n_states, config.base_seed, sweep_seed);
+
+                let m = magnetization(&spins, config.n_states);
+                sum_m += m;
+                sum_m_sq += m * m;
             }
 
             let n_sweeps_f = config.n_sweeps as f64;
@@ -113,21 +76,29 @@ pub fn run(graph: &Graph, config: &RunConfig) -> Vec<TempStats> {
                 .map(|&c| c as f64 / n_sweeps_f)
                 .collect();
 
-            // NOTE: susceptibility estimators follow standard Potts MC practice.
-            // The paper (Blatt et al. 1997) identifies the superparamagnetic phase via a peak
-            // in χ(T) but does not prescribe the estimator precisely.
-            let scale = n_sweeps_f * n as f64 * temp;
-            let susceptibility = sum_sq_sizes / scale;
-            let susceptibility_connected = sum_sq_sizes_connected / scale;
+            let mean_m = sum_m / n_sweeps_f;
+            let mean_m_sq = sum_m_sq / n_sweeps_f;
+            let susceptibility = (n as f64 / temp) * (mean_m_sq - mean_m * mean_m);
 
             TempStats {
                 temp,
                 susceptibility,
-                susceptibility_connected,
                 edge_correlations,
             }
         })
         .collect()
+}
+
+/// Eq. 4 of Blatt, Wiseman & Domany (1997).
+fn magnetization(spins: &[u32], n_states: u32) -> f64 {
+    let mut counts = vec![0usize; n_states as usize];
+    for &s in spins {
+        counts[s as usize] += 1;
+    }
+    let n_max = *counts.iter().max().unwrap() as f64;
+    let n = spins.len() as f64;
+    let q = n_states as f64;
+    (q * n_max - n) / ((q - 1.0) * n)
 }
 
 /// Data clusters from the edge correlations at one temperature
@@ -201,7 +172,6 @@ mod tests {
         let graph = triangle_graph();
         let config = RunConfig {
             temperatures: vec![0.01],
-            n_warmup: 50,
             n_sweeps: 500,
             n_states: 2, // small q → fast equilibration
             base_seed: 0xdeadbeef,
@@ -218,7 +188,6 @@ mod tests {
         let graph = triangle_graph();
         let config = RunConfig {
             temperatures: vec![1e6],
-            n_warmup: 10,
             n_sweeps: 200,
             n_states: 2,
             base_seed: 0xcafebabe,
@@ -284,5 +253,11 @@ mod tests {
         assert_eq!(labels[0], labels[2]);
         assert_eq!(labels[3], labels[4]);
         assert_ne!(labels[0], labels[3]);
+    }
+
+    #[test]
+    fn magnetization_ordered_and_uniform() {
+        assert_eq!(magnetization(&[3, 3, 3, 3], 4), 1.0);
+        assert_eq!(magnetization(&[0, 1, 2, 3], 4), 0.0);
     }
 }

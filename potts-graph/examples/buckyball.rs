@@ -16,15 +16,8 @@ fn main() {
         .map(|i| t_max * (t_min / t_max).powf(i as f64 / (n_temps - 1) as f64))
         .collect();
 
-    // n_sweeps=1000 is enough to locate the transition but susceptibility_connected
-    // may show small zig-zags just below the transition temperature due to critical
-    // slowing down — the chain mixes slowly there and occasional small clusters break
-    // off the ordered phase, inflating the estimator. Increase n_sweeps (try 5000+)
-    // if smoother curves are needed. Changing n_temps shifts the per-temperature seeds
-    // and can also affect noise levels, but that is luck rather than a fix.
     let config = RunConfig {
         temperatures,
-        n_warmup: 300,
         n_sweeps: 1000,
         n_states: 50,
         base_seed: 0xC60C60C60C60C60,
@@ -32,14 +25,11 @@ fn main() {
 
     let stats = run(&graph, &config);
 
-    println!("temp\tsusceptibility\tsusceptibility_connected\tn_clusters");
+    println!("temp\tsusceptibility\tn_clusters");
     for s in &stats {
         let labels = extract_clusters(&graph, &s.edge_correlations, config.n_states);
         let n_clusters = labels.iter().cloned().collect::<HashSet<_>>().len();
-        println!(
-            "{:.6}\t{:.6}\t{:.6}\t{}",
-            s.temp, s.susceptibility, s.susceptibility_connected, n_clusters
-        );
+        println!("{:.6}\t{:.6}\t{}", s.temp, s.susceptibility, n_clusters);
     }
 }
 
