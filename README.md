@@ -20,3 +20,7 @@ Runs a temperature sweep on the 60 vertices of a C60 buckyball (unit sphere). Ou
 ## license
 
 MIT
+
+## acknowledgement
+
+Developed with the assistance of [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool.
